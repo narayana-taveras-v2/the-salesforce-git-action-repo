@@ -1,0 +1,39 @@
+# Actions list -> https://docs.github.com/en/actions/writing-workflows/workflow-syntax-for-github-actions
+name: Salesforce Validation
+on:
+    # Events list -> https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows
+    push:
+      branches: [ main ]
+    pull_request:
+      branches: [ main, 'dev/**' ]
+jobs:
+    Run-npm-on-Ubuntu:
+        name: Run Salesforce Validation
+        runs-on: ubuntu-latest
+        steps:
+            - name: Download the repo code
+            uses: actions/checkout@v4
+            - name: Install Salesforce CLI
+            run: |
+                wget https://developer.salesforce.com/media/salesforce-cli/sf/channels/stable/sf-linux-x64.tar.xz
+                mkdir ~/sfcli
+                tar xJf sf-linux-x64.tar.xz -C ~/sfcli --strip-components 1
+                echo "$HOME/sfcli/bin" >> $GITHUB_PATH
+                ~/sfcli/bin/sfdx version
+        
+            - name: Populate auth file with SFDX_URL secret of integration org
+            shell: bash
+            run: | 
+                echo ${{ secrets.DEVHUB_SFDX_URL}} > ./DEVHUB_SFDX_URL.txt
+            - name: Authenticate into Salesforce
+            shell: bash
+            run: |
+                sf auth sfdxurl store -f DEVHUB_SFDX_URL.txt -a HubOrg
+            - name: Push changes to Org
+            run: |
+                sf project deploy start --target-org ciorg
+            - name: Run all Apex tests
+            run: |
+                sf apex run test -o ciorg -l RunLocalTests -r tap -d test-results
+
+            
