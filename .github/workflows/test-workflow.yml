@@ -17,87 +17,101 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: 'Checkout source code'
-              uses: actions/checkout@v4
-              with:
+            uses: actions/checkout@v4
+            with:
                 fetch-depth: 0
+            
+        - name: Download & install Salesforce CLI
+        run: |
+            echo "Download & install Salesforce CLI..."
+            mkdir sfcli
+            wget $SF_CLI_URL | tar xJ -C sfcli --strip-components 1
+            echo "$HOME/sfcli/bin" >> $GITHUB_PATH
+            ~/sfcli/sf version
+        
 
-            - name: Download & install Salesforce CLI
-              run: |
-                echo "Download & install Salesforce CLI..."
-                wget https://developer.salesforce.com/media/salesforce-cli/sf/channels/stable/sf-linux-x64.tar.xz
-                mkdir ~/sfcli
-                tar xJf sf-linux-x64.tar.xz -C ~/sfcli --strip-components 1
-                echo "$HOME/sfcli/bin" >> $GITHUB_PATH
-                sf version
+        - name: Decrypt JWT Key
+        shell: bash
+        run: openssl aes-256-cbc -k ${{ secrets.PRIVATE_JWT_FILE_ENCRYPTION_PASSWORD }} -in assets/server.key.enc -out assets/server.key -d
 
-            - name: Decrypt JWT Key
-              shell: bash
-              run: openssl aes-256-cbc -k ${{ secrets.PRIVATE_JWT_FILE_ENCRYPTION_PASSWORD }} -in assets/server.key.enc -out assets/server.key -d
+        
+        - name: Authenticate into Salesforce
+        shell: bash
+        run: |
+            echo "Logging into org..."
+            sf org login jwt --client-id ${{ secrets.DEV_ORG_CONSUMER_KEY }} --jwt-key-file assets/server.key --username ${{ secrets.DEV_ORG_USER }} --alias ci-org --set-default
 
-            - name: Authenticate into Salesforce
-              run: |
-                echo "Logging into org..."
-                sf org login jwt --client-id ${{ secrets.DEV_ORG_CONSUMER_KEY }} --jwt-key-file assets/server.key --username ${{ secrets.DEV_ORG_USER }} --alias ci-org --set-default
+        - name: Validate Deployment
+        id: validate-deployment
+        run: sf project deploy start --wait 10 -d force-app --dry-run
+        continue-on-error: true
 
-            - name: Validate Deployment
-              id: validate-deployment
-              run: sf project deploy start --wait 10 -d force-app --dry-run
-              continue-on-error: true
+        - name: Run all Apex tests
+        id: validate-test-classes
+        run: sf apex run test -o ciorg -l RunLocalTests -r tap -d test-results
+        continue-on-error: true
 
-            - name: Run all Apex tests
-              id: validate-test-classes
-              run: sf apex run test -o ciorg -l RunLocalTests -r tap -d test-results
-              continue-on-error: true
-
-            - name: Check Deployment and Test Results
-              if: always()
-              run: |
-                if steps.validate-deployment.outcome != 'success' || steps.validate-test-classes.outcome != 'success'; then
-                  echo "Deployment or Tests Failed!"
-                  exit 1
-                else
-                  echo "Deployment and Tests Succeeded!"
-                fi
+        - name: Check Deployment and Test Results
+        if: always()
+        run: |
+            if steps.validate-deployment.outcome != 'success' || steps.validate-test-classes.outcome != 'success'; then
+            echo "Deployment or Tests Failed!"
+            exit 1
+            else
+            echo "Deployment and Tests Succeeded!"
+            fi
 
             - name: Parse Test Results and Create File
-              if: always()
-              run: |
-                echo "Parsing test results..."
-                TEST_RESULTS=$(echo "${{ steps.validate-deployment.outputs.stdout }}" | grep -E '^-{3,}|FAIL|PASS')
+            if: always()
+            run: |
+              echo "Parsing test results..."
+              TEST_RESULTS=$(echo "${{ steps.validate-deployment.outputs.stdout }}" | grep -E '^-{3,}|FAIL|PASS')
 
-                if [[ -n "$TEST_RESULTS" ]]; then
-                  echo "## Apex Test Results (Dry Run)" > test_results.md
-                  echo "```text" >> test_results.md
-                  echo "$TEST_RESULTS" >> test_results.md
-                  echo "```" >> test_results.md
-                  echo "Test results have been captured in test_results.md"
-                else
-                  echo "No test results found in the output." > test_results.md
-                fi
+              if [[ -n "$TEST_RESULTS" ]]; then
+                echo "## Apex Test Results (Dry Run)" > test_results.md
+                echo "```text" >> test_results.md
+                echo "$TEST_RESULTS" >> test_results.md
+                echo "```" >> test_results.md
+                echo "Test results have been captured in test_results.md"
+              else
+                echo "No test results found in the output." > test_results.md
+              fi
 
-            - name: Add Test Results to Pull Request
-              uses: actions/github-script@v6
-              if: github.event_name == 'pull_request' && always()
-              with:
-                github-token: ${{ secrets.GITHUB_TOKEN }}
-                script: |
-                  const fs = require('fs');
-                  const output = fs.readFileSync('./test_results.md', 'utf8');
+          - name: Add Test Results to Pull Request
+            uses: actions/github-script@v6
+            if: github.event_name == 'pull_request' && always()
+            with:
+              github-token: ${{ secrets.GITHUB_TOKEN }}
+              script: |
+                const fs = require('fs');
+                const output = fs.readFileSync('./test_results.md', 'utf8');
 
-                  if (output.includes('FAIL')) {
-                    console.log('Adding test failure results to the PR.');
-                    await github.rest.issues.createComment({
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      issue_number: context.payload.pull_request.number,
-                      body: output
-                    });
-                  } else if (output.includes('PASS') || output.includes('No test results found')) {
-                    console.log('Adding test success/no results to the PR.');
-                    await github.rest.issues.createComment({
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      issue_number: context.payload.pull_request.number,
-                      body: output
-                    });
-                  }
+                if (output.includes('FAIL')) {
+                  console.log('Adding test failure results to the PR.');
+                  await github.rest.issues.createComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: context.payload.pull_request.number,
+                    body: output
+                  });
+                } else if (output.includes('PASS') || output.includes('No test results found')) {
+                  console.log('Adding test success/no results to the PR.');
+                  await github.rest.issues.createComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: context.payload.pull_request.number,
+                    body: output
+                  });
+                }
+
+          - name: Check Deployment Outcome
+            if: always()
+            run: |
+              if steps.validate-deployment.outcome != 'success'; then
+                echo "Deployment Validation or Tests Encountered Errors (Check PR Comment for Details)!"
+                exit 1
+              else
+                echo "Deployment Validation and Tests Succeeded (Dry Run)!"
+              fi
+
+            
