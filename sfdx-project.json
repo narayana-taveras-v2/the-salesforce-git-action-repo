@@ -8,5 +8,6 @@
   "name": "Salesforce-Git-CiCd",
   "namespace": "",
   "sfdcLoginUrl": "https://login.salesforce.com",
-  "sourceApiVersion": "63.0"
+  "sourceApiVersion": "63.0",
+  "oauthLocalPort" : "1919"
 }
