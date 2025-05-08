@@ -38,7 +38,7 @@ jobs:
     
             - name: Run all Apex tests
               id: validate-test-classes
-              run: sf apex run test -o ciorg -l RunLocalTests -r tap -d test-results
+              run: sf apex run test -l RunLocalTests -r tap -d test-results
               continue-on-error: true
     
             - name: Check Deployment and Test Results
