@@ -15,11 +15,10 @@ jobs:
                     
             - name: Download & install Salesforce CLI
               run: |
-                  echo "Download & install Salesforce CLI..."
-                  mkdir sfcli
-                  wget $SF_CLI_URL | tar xJ -C sfcli --strip-components 1
-                  echo "$HOME/sfcli/bin" >> $GITHUB_PATH
-                  ~/sfcli/sf version
+                npm install @salesforce/cli --location=global
+                nodeInstallPath=$(npm config get prefix)
+                echo "$nodeInstallPath/bin" >> $GITHUB_PATH
+                sf --version
                 
             - name: Decrypt JWT Key
               shell: bash
