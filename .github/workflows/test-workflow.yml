@@ -1,6 +1,10 @@
 # Actions list -> https://docs.github.com/en/actions/writing-workflows/workflow-syntax-for-github-actions
 name: Salesforce Validation
-on: [push, workflow_dispatch]
+on: 
+    push:
+        branches:
+          - dev
+    workflow_dispatch:
     # Events list -> https://docs.github.com/en/actions/writing-workflows/choosing-when-your-workflow-runs/events-that-trigger-workflows
      
 jobs:
@@ -42,64 +46,10 @@ jobs:
               continue-on-error: true
     
             - name: Check Deployment and Test Results
-              if: always()
               run: |
                 if steps.validate-deployment.outcome != 'success' || steps.validate-test-classes.outcome != 'success'; then
-                echo "Deployment or Tests Failed!"
+                echo "Deployment or Tests Succeeded!"
                 exit 1
                 else
-                echo "Deployment and Tests Succeeded!"
+                echo "Deployment and Tests Fail!"
                 fi
-    
-            - name: Parse Test Results and Create File
-              if: always()
-              run: |
-                echo "Parsing test results..."
-                TEST_RESULTS=$(echo "${{ steps.validate-deployment.outputs.stdout }}" | grep -E '^-{3,}|FAIL|PASS')
-
-                if [[ -n "$TEST_RESULTS" ]]; then
-                echo "## Apex Test Results (Dry Run)" > test_results.md
-                echo "```text" >> test_results.md
-                echo "$TEST_RESULTS" >> test_results.md
-                echo "```" >> test_results.md
-                echo "Test results have been captured in test_results.md"
-                else
-                echo "No test results found in the output." > test_results.md
-                fi
-                
-            - name: Add Test Results to Pull Request
-              uses: actions/github-script@v6
-              if: github.event_name == 'pull_request' && always()
-              with:
-                github-token: ${{ secrets.GITHUB_TOKEN }}
-                script: |
-                    const fs = require('fs');
-                    const output = fs.readFileSync('./test_results.md', 'utf8');
-    
-                    if (output.includes('FAIL')) {
-                      console.log('Adding test failure results to the PR.');
-                      await github.rest.issues.createComment({
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        issue_number: context.payload.pull_request.number,
-                        body: output
-                      });
-                    } else if (output.includes('PASS') || output.includes('No test results found')) {
-                      console.log('Adding test success/no results to the PR.');
-                      await github.rest.issues.createComment({
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        issue_number: context.payload.pull_request.number,
-                        body: output
-                      });
-                    }
-
-            - name: Check Deployment Outcome
-              if: always()
-              run: |
-                  if steps.validate-deployment.outcome != 'success'; then
-                    echo "Deployment Validation or Tests Encountered Errors (Check PR Comment for Details)!"
-                    exit 1
-                  else
-                    echo "Deployment Validation and Tests Succeeded (Dry Run)!"
-                  fi
